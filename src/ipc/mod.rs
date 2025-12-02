@@ -1,9 +1,11 @@
 pub mod hypr_commands;
-pub mod hypr_listener;
 
-// Re-export commonly used types
+// Re-export the actual functions and structs we created
 pub use hypr_commands::{
-    HyprCommandClient, HyprCommandError, dispatch, get_json, send_hypr_command,
+    capture_state, 
+    SessionSnapshot,
+    HyprClient,
+    HyprWorkspace,
+    HyprMonitor,
+    HyprWorkspaceRef,
 };
-
-pub use hypr_listener::{HyprEvent, IpcEventListener};
