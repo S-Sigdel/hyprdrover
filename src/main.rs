@@ -1,153 +1,50 @@
 mod ipc;
+mod snapshot;
 
-use ipc::{HyprCommandClient, HyprEvent, IpcEventListener};
+fn main() {
+    println!("Scanning Hyprland Session...");
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Hyprland Session Manager - IPC Demo");
-    println!("====================================\n");
+    match ipc::capture_state() {
+        Ok(snapshot) => {
+            println!("Snapshot captured successfully.");
+            println!("--------------------------------");
+            
+            println!("Monitors: {}", snapshot.monitors.len());
+            for mon in &snapshot.monitors {
+                println!("   - {} ({}x{} @ {:.2}Hz)", mon.name, mon.width, mon.height, mon.refresh_rate);
+            }
 
-    // Example 1: Send some commands
-    demo_commands()?;
+            println!("\nWorkspaces: {}", snapshot.workspaces.len());
+            for ws in &snapshot.workspaces {
+                println!("   - ID {}: {} (on {})", ws.id, ws.name, ws.monitor);
+            }
 
-    // Example 2: Listen to events
-    demo_event_listener()?;
+            println!("\nWindows: {}", snapshot.clients.len());
+            for client in &snapshot.clients {
+                // Truncate title if too long for display
+                let display_title = if client.title.len() > 50 {
+                    format!("{}...", &client.title[..50])
+                } else {
+                    client.title.clone()
+                };
+                
+                println!(
+                    "   - [{}] {}\n     -> Workspace: {} | Pos: {:?} | Size: {:?}", 
+                    client.class, 
+                    display_title,
+                    client.workspace.id,
+                    client.at,
+                    client.size
+                );
+            }
 
-    Ok(())
-}
-
-fn demo_commands() -> Result<(), Box<dyn std::error::Error>> {
-    println!("📤 Command Demo:");
-    println!("-----------------");
-
-    let client = HyprCommandClient::new()?;
-
-    // Get current workspaces
-    println!("Fetching workspaces...");
-    match client.get_workspaces() {
-        Ok(workspaces) => println!("Workspaces JSON: {}\n", workspaces),
-        Err(e) => println!("Error getting workspaces: {}\n", e),
+            // Save to JSON
+            println!("\nSaving session...");
+            match snapshot::save_session_to_file(&snapshot) {
+                Ok(path) => println!("Session saved to: {}", path),
+                Err(e) => eprintln!("Failed to save session: {}", e),
+            }
+        }
+        Err(e) => eprintln!("Error capturing state: {}", e),
     }
-
-    // Get current clients (windows)
-    println!("Fetching clients...");
-    match client.get_clients() {
-        Ok(clients) => println!("Clients JSON: {}\n", clients),
-        Err(e) => println!("Error getting clients: {}\n", e),
-    }
-
-    // Get active window
-    println!("Fetching active window...");
-    match client.get_active_window() {
-        Ok(window) => println!("Active window JSON: {}\n", window),
-        Err(e) => println!("Error getting active window: {}\n", e),
-    }
-
-    Ok(())
-}
-
-fn demo_event_listener() -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n📥 Event Listener Demo:");
-    println!("-----------------------");
-    println!("Listening for Hyprland events... (Press Ctrl+C to stop)\n");
-
-    let mut listener = IpcEventListener::connect()?;
-
-    listener.listen(|event| match event {
-        HyprEvent::WorkspaceChanged {
-            workspace_id,
-            workspace_name,
-        } => {
-            println!(
-                "🖥️  Workspace changed to: {} ({})",
-                workspace_name, workspace_id
-            );
-        }
-        HyprEvent::ActiveWindow { class, title } => {
-            println!("🪟  Active window: {} - {}", class, title);
-        }
-        HyprEvent::WindowOpened {
-            address,
-            workspace,
-            class,
-            title,
-        } => {
-            println!(
-                "✅ Window opened: {} - {} (workspace: {}, addr: {})",
-                class, title, workspace, address
-            );
-        }
-        HyprEvent::WindowClosed { address } => {
-            println!("❌ Window closed: {}", address);
-        }
-        HyprEvent::WindowMoved { address, workspace } => {
-            println!("↔️  Window moved: {} to workspace {}", address, workspace);
-        }
-        HyprEvent::FocusedMonitor {
-            monitor_name,
-            workspace_name,
-        } => {
-            println!(
-                "🖥️  Monitor focused: {} (workspace: {})",
-                monitor_name, workspace_name
-            );
-        }
-        HyprEvent::Fullscreen { state } => {
-            println!(
-                "⛶  Fullscreen: {}",
-                if state { "enabled" } else { "disabled" }
-            );
-        }
-        HyprEvent::CreateWorkspace {
-            workspace_id,
-            workspace_name,
-        } => {
-            println!(
-                "➕ Workspace created: {} ({})",
-                workspace_name, workspace_id
-            );
-        }
-        HyprEvent::DestroyWorkspace {
-            workspace_id,
-            workspace_name,
-        } => {
-            println!(
-                "➖ Workspace destroyed: {} ({})",
-                workspace_name, workspace_id
-            );
-        }
-        HyprEvent::Unknown { raw } => {
-            println!("❓ Unknown event: {}", raw);
-        }
-        _ => {
-            println!("ℹ️  Event: {:?}", event);
-        }
-    })?;
-
-    Ok(())
-}
-
-// Alternative: Filtered event listener example
-#[allow(dead_code)]
-fn demo_filtered_listener() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Listening only for window events...\n");
-
-    let mut listener = IpcEventListener::connect()?;
-
-    listener.listen_filtered(
-        |event| {
-            println!("Window event: {:?}", event);
-        },
-        |event| {
-            // Only listen to window-related events
-            matches!(
-                event,
-                HyprEvent::WindowOpened { .. }
-                    | HyprEvent::WindowClosed { .. }
-                    | HyprEvent::WindowMoved { .. }
-                    | HyprEvent::ActiveWindow { .. }
-            )
-        },
-    )?;
-
-    Ok(())
 }
