@@ -1,50 +1,73 @@
 mod ipc;
 mod snapshot;
+mod config;
+mod state;
+mod utils;
+
+use config::Config;
+use state::SessionManager;
 
 fn main() {
+    // 1. Initialize Config (Defaults for now)
+    let config = Config::default();
+    let manager = SessionManager::new(config);
+
     println!("Scanning Hyprland Session...");
 
-    match ipc::capture_state() {
-        Ok(snapshot) => {
+    // 2. Use the SessionManager to handle the logic
+    match manager.snapshot() {
+        Ok(path) => {
             println!("Snapshot captured successfully.");
-            println!("--------------------------------");
+            println!("Session saved to: {}", path.display());
             
-            println!("Monitors: {}", snapshot.monitors.len());
-            for mon in &snapshot.monitors {
-                println!("   - {} ({}x{} @ {:.2}Hz)", mon.name, mon.width, mon.height, mon.refresh_rate);
+            // List recent sessions just to show it works
+            if let Ok(sessions) = manager.list_sessions() {
+                println!("\nTotal saved sessions: {}", sessions.len());
             }
 
-            println!("\nWorkspaces: {}", snapshot.workspaces.len());
-            for ws in &snapshot.workspaces {
-                println!("   - ID {}: {} (on {})", ws.id, ws.name, ws.monitor);
-            }
-
-            println!("\nWindows: {}", snapshot.clients.len());
-            for client in &snapshot.clients {
-                // Truncate title if too long for display
-                let display_title = if client.title.len() > 50 {
-                    format!("{}...", &client.title[..50])
-                } else {
-                    client.title.clone()
-                };
-                
-                println!(
-                    "   - [{}] {}\n     -> Workspace: {} | Pos: {:?} | Size: {:?}", 
-                    client.class, 
-                    display_title,
-                    client.workspace.id,
-                    client.at,
-                    client.size
-                );
-            }
-
-            // Save to JSON
-            println!("\nSaving session...");
-            match snapshot::save_session_to_file(&snapshot) {
-                Ok(path) => println!("Session saved to: {}", path),
-                Err(e) => eprintln!("Failed to save session: {}", e),
+            // 3. Run the Movement Test
+            println!("\nRunning Movement Test...");
+            if let Err(e) = run_movement_test() {
+                eprintln!("Test failed: {}", e);
             }
         }
         Err(e) => eprintln!("Error capturing state: {}", e),
     }
+}
+
+/// A small script to test moving windows around
+fn run_movement_test() -> Result<(), Box<dyn std::error::Error>> {
+    use std::{thread, time};
+
+    // Capture state to find a victim window
+    let state = ipc::capture_state()?;
+    
+    // Find a window that isn't our own terminal (optional heuristic, but good practice)
+    // For now, just pick the first one that looks like a normal window
+    if let Some(client) = state.clients.first() {
+        println!("Target found: [{}] {} ({})", client.class, client.title, client.address);
+        println!("   Current Workspace: {}", client.workspace.id);
+
+        let original_workspace = client.workspace.id;
+        // Move to workspace 9 (usually empty) or just +1
+        let target_workspace = if original_workspace == 9 { 1 } else { 9 };
+
+        println!("   -> Moving to Workspace {} (Silent)...", target_workspace);
+        ipc::move_window_to_workspace(&client.address, target_workspace)?;
+        
+        println!("   -> Waiting 2 seconds...");
+        thread::sleep(time::Duration::from_secs(2));
+
+        println!("   -> Moving back to Workspace {}...", original_workspace);
+        ipc::move_window_to_workspace(&client.address, original_workspace)?;
+        
+        println!("   -> Focusing window...");
+        ipc::focus_window(&client.address)?;
+
+        println!("Test Complete: Window moved there and back again.");
+    } else {
+        println!("No windows found to test with.");
+    }
+
+    Ok(())
 }

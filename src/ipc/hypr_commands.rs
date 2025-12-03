@@ -109,6 +109,35 @@ pub fn capture_state() -> Result<SessionSnapshot, Box<dyn Error>> {
     })
 }
 
+// --- Dispatch Commands (Actions) ---
+
+/// Execute a raw hyprctl dispatch command
+pub fn dispatch(command: &str) -> Result<(), Box<dyn Error>> {
+    let args: Vec<&str> = command.split_whitespace().collect();
+    let output = Command::new("hyprctl")
+        .arg("dispatch")
+        .args(&args)
+        .output()?;
+
+    if !output.status.success() {
+        return Err(format!("Dispatch failed: {}", String::from_utf8_lossy(&output.stderr)).into());
+    }
+    Ok(())
+}
+
+/// Move a specific window to a workspace (silently, without switching focus to that workspace)
+pub fn move_window_to_workspace(address: &str, workspace_id: i32) -> Result<(), Box<dyn Error>> {
+    // Syntax: movetoworkspacesilent ID,address:ADDRESS
+    let cmd = format!("movetoworkspacesilent {},address:{}", workspace_id, address);
+    dispatch(&cmd)
+}
+
+/// Focus a specific window
+pub fn focus_window(address: &str) -> Result<(), Box<dyn Error>> {
+    let cmd = format!("focuswindow address:{}", address);
+    dispatch(&cmd)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
