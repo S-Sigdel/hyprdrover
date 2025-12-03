@@ -1,73 +1,84 @@
 mod ipc;
-mod snapshot;
 mod config;
 mod state;
-mod utils;
+mod restore;
 
+use std::env;
+use std::path::PathBuf;
 use config::Config;
 use state::SessionManager;
 
 fn main() {
-    // 1. Initialize Config (Defaults for now)
+    let args: Vec<String> = env::args().collect();
     let config = Config::default();
     let manager = SessionManager::new(config);
 
-    println!("Scanning Hyprland Session...");
+    if args.len() < 2 {
+        print_usage();
+        return;
+    }
 
-    // 2. Use the SessionManager to handle the logic
-    match manager.snapshot() {
-        Ok(path) => {
-            println!("Snapshot captured successfully.");
-            println!("Session saved to: {}", path.display());
-            
-            // List recent sessions just to show it works
-            if let Ok(sessions) = manager.list_sessions() {
-                println!("\nTotal saved sessions: {}", sessions.len());
-            }
-
-            // 3. Run the Movement Test
-            println!("\nRunning Movement Test...");
-            if let Err(e) = run_movement_test() {
-                eprintln!("Test failed: {}", e);
+    match args[1].as_str() {
+        "--save" => {
+            match manager.snapshot() {
+                Ok(path) => println!("Session saved to: {}", path.display()),
+                Err(e) => eprintln!("Error saving session: {}", e),
             }
         }
-        Err(e) => eprintln!("Error capturing state: {}", e),
+        "--load" => {
+            let path = if args.len() > 2 {
+                PathBuf::from(&args[2])
+            } else {
+                // Load latest
+                match manager.list_sessions() {
+                    Ok(sessions) => {
+                        if let Some(latest) = sessions.first() {
+                            println!("No file specified, loading latest session: {}", latest.display());
+                            latest.clone()
+                        } else {
+                            eprintln!("No saved sessions found.");
+                            return;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error listing sessions: {}", e);
+                        return;
+                    }
+                }
+            };
+
+            if let Err(e) = manager.restore(&path) {
+                eprintln!("Error restoring session: {}", e);
+            } else {
+                println!("Session restored successfully.");
+            }
+        }
+        "--list" => {
+             match manager.list_sessions() {
+                Ok(sessions) => {
+                    if sessions.is_empty() {
+                        println!("No saved sessions found.");
+                    } else {
+                        println!("Saved sessions:");
+                        for session in sessions {
+                            println!("  {}", session.display());
+                        }
+                    }
+                }
+                Err(e) => eprintln!("Error listing sessions: {}", e),
+            }
+        }
+        _ => {
+            eprintln!("Unknown command: {}", args[1]);
+            print_usage();
+        }
     }
 }
 
-/// A small script to test moving windows around
-fn run_movement_test() -> Result<(), Box<dyn std::error::Error>> {
-    use std::{thread, time};
-
-    // Capture state to find a victim window
-    let state = ipc::capture_state()?;
-    
-    // Find a window that isn't our own terminal (optional heuristic, but good practice)
-    // For now, just pick the first one that looks like a normal window
-    if let Some(client) = state.clients.first() {
-        println!("Target found: [{}] {} ({})", client.class, client.title, client.address);
-        println!("   Current Workspace: {}", client.workspace.id);
-
-        let original_workspace = client.workspace.id;
-        // Move to workspace 9 (usually empty) or just +1
-        let target_workspace = if original_workspace == 9 { 1 } else { 9 };
-
-        println!("   -> Moving to Workspace {} (Silent)...", target_workspace);
-        ipc::move_window_to_workspace(&client.address, target_workspace)?;
-        
-        println!("   -> Waiting 2 seconds...");
-        thread::sleep(time::Duration::from_secs(2));
-
-        println!("   -> Moving back to Workspace {}...", original_workspace);
-        ipc::move_window_to_workspace(&client.address, original_workspace)?;
-        
-        println!("   -> Focusing window...");
-        ipc::focus_window(&client.address)?;
-
-        println!("Test Complete: Window moved there and back again.");
-    } else {
-        println!("No windows found to test with.");
-    }
-
-    Ok(())
+fn print_usage() {
+    println!("Usage: hyprDrover [COMMAND]");
+    println!("Commands:");
+    println!("  --save              Snapshot the current session");
+    println!("  --load [FILE]       Restore a session (defaults to latest if FILE not provided)");
+    println!("  --list              List all saved sessions");
 }

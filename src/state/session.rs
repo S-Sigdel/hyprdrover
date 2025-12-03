@@ -4,7 +4,6 @@ use std::error::Error;
 use chrono::Local;
 use crate::config::Config;
 use crate::ipc::{self, SessionSnapshot};
-use crate::snapshot;
 
 pub struct SessionManager {
     config: Config,
@@ -68,5 +67,18 @@ impl SessionManager {
         // Sort by name (timestamp) descending
         sessions.sort_by(|a, b| b.cmp(a));
         Ok(sessions)
+    }
+
+    pub fn restore(&self, session_path: &Path) -> Result<(), Box<dyn Error>> {
+        // 1. Load snapshot
+        let content = fs::read_to_string(session_path)?;
+        let snapshot: SessionSnapshot = serde_json::from_str(&content)?;
+
+        println!("Restoring session from {}...", session_path.display());
+
+        // 2. Delegate to restore module
+        crate::restore::restore_session(&snapshot)?;
+
+        Ok(())
     }
 }

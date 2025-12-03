@@ -56,7 +56,7 @@ pub struct HyprMonitor {
 
 // --- Helper Struct for the full snapshot ---
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SessionSnapshot {
     pub clients: Vec<HyprClient>,
     pub workspaces: Vec<HyprWorkspace>,
@@ -133,8 +133,23 @@ pub fn move_window_to_workspace(address: &str, workspace_id: i32) -> Result<(), 
 }
 
 /// Focus a specific window
+#[allow(dead_code)]
 pub fn focus_window(address: &str) -> Result<(), Box<dyn Error>> {
     let cmd = format!("focuswindow address:{}", address);
+    dispatch(&cmd)
+}
+
+/// Move a window to a specific pixel coordinate
+pub fn move_window_pixel(address: &str, x: i32, y: i32) -> Result<(), Box<dyn Error>> {
+    // Syntax: movewindowpixel exact X Y,address:ADDRESS
+    let cmd = format!("movewindowpixel exact {} {},address:{}", x, y, address);
+    dispatch(&cmd)
+}
+
+/// Resize a window to specific dimensions
+pub fn resize_window_pixel(address: &str, width: i32, height: i32) -> Result<(), Box<dyn Error>> {
+    // Syntax: resizewindowpixel exact W H,address:ADDRESS
+    let cmd = format!("resizewindowpixel exact {} {},address:{}", width, height, address);
     dispatch(&cmd)
 }
 

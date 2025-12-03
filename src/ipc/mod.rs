@@ -5,10 +5,8 @@ pub use hypr_commands::{
     capture_state,
     dispatch,
     move_window_to_workspace,
-    focus_window,
+    move_window_pixel,
+    resize_window_pixel,
     SessionSnapshot,
     HyprClient,
-    HyprWorkspace,
-    HyprMonitor,
-    HyprWorkspaceRef,
 };
