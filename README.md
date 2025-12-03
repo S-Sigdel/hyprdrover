@@ -55,7 +55,7 @@ To snapshot the current state of your Hyprland session:
 hyprdrover --save
 ```
 
-This will create a new JSON file in the `sessions/` directory (relative to where you run the command) with a timestamp.
+This will create a new JSON file in `~/.config/hyprdrover/sessions/` with a timestamp.
 
 ### List Saved Sessions
 
@@ -76,7 +76,7 @@ hyprdrover --load
 To restore a specific session file:
 
 ```bash
-hyprdrover --load sessions/session_YYYY-MM-DD_HH-MM-SS.json
+hyprdrover --load ~/.config/hyprdrover/sessions/session_YYYY-MM-DD_HH-MM-SS.json
 ```
 
 ### Install
