@@ -11,6 +11,12 @@ pub struct HyprWorkspaceRef {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HyprActiveWorkspace {
+    pub id: i32,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct HyprClient {
     pub address: String,
@@ -104,6 +110,13 @@ fn get_monitors() -> Result<Vec<HyprMonitor>, Box<dyn Error>> {
     let json = run_hyprctl(&["monitors"])?;
     let monitors: Vec<HyprMonitor> = serde_json::from_str(&json)?;
     Ok(monitors)
+}
+
+/// Get the active workspace for the currently focused monitor
+pub fn get_active_workspace() -> Result<HyprActiveWorkspace, Box<dyn Error>> {
+    let json = run_hyprctl(&["activeworkspace"])?;
+    let workspace: HyprActiveWorkspace = serde_json::from_str(&json)?;
+    Ok(workspace)
 }
 
 /// Capture the entire current state of Hyprland
