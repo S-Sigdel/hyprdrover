@@ -57,6 +57,14 @@ hyprdrover --save
 
 This will create a new JSON file in `~/.config/hyprdrover/sessions/` with a timestamp.
 
+You can also give the session a name:
+
+```bash
+hyprdrover --save my-workflow
+```
+
+This will save the session as `my-workflow.json`.
+
 ### List Saved Sessions
 
 To view all available snapshots:
@@ -73,7 +81,13 @@ To restore the most recent session:
 hyprdrover --load
 ```
 
-To restore a specific session file:
+To restore a specific named session:
+
+```bash
+hyprdrover --load my-workflow
+```
+
+To restore a specific session file by path:
 
 ```bash
 hyprdrover --load ~/.config/hyprdrover/sessions/session_YYYY-MM-DD_HH-MM-SS.json

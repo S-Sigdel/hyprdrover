@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 use std::error::Error;
+use std::process::Command;
 
 // --- Data Models (matching hyprctl -j output) ---
 
@@ -27,6 +27,8 @@ pub struct HyprClient {
     pub fullscreen: i32, // 0: none, 1: maximized, 2: fullscreen
     pub xwayland: bool,
     pub pid: i32,
+    #[serde(default)]
+    pub exec_path: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -73,7 +75,11 @@ fn run_hyprctl(args: &[&str]) -> Result<String, Box<dyn Error>> {
         .output()?;
 
     if !output.status.success() {
-        return Err(format!("hyprctl failed: {}", String::from_utf8_lossy(&output.stderr)).into());
+        return Err(format!(
+            "hyprctl failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .into());
     }
 
     Ok(String::from_utf8(output.stdout)?)
@@ -102,8 +108,17 @@ fn get_monitors() -> Result<Vec<HyprMonitor>, Box<dyn Error>> {
 
 /// Capture the entire current state of Hyprland
 pub fn capture_state() -> Result<SessionSnapshot, Box<dyn Error>> {
+    let mut clients = get_clients()?;
+
+    // Enrich clients with executable path from /proc/<pid>/exe
+    for client in &mut clients {
+        if let Ok(path) = std::fs::read_link(format!("/proc/{}/exe", client.pid)) {
+            client.exec_path = Some(path.to_string_lossy().into_owned());
+        }
+    }
+
     Ok(SessionSnapshot {
-        clients: get_clients()?,
+        clients,
         workspaces: get_workspaces()?,
         monitors: get_monitors()?,
     })
@@ -120,7 +135,11 @@ pub fn dispatch(command: &str) -> Result<(), Box<dyn Error>> {
         .output()?;
 
     if !output.status.success() {
-        return Err(format!("Dispatch failed: {}", String::from_utf8_lossy(&output.stderr)).into());
+        return Err(format!(
+            "Dispatch failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .into());
     }
     Ok(())
 }
@@ -149,7 +168,10 @@ pub fn move_window_pixel(address: &str, x: i32, y: i32) -> Result<(), Box<dyn Er
 /// Resize a window to specific dimensions
 pub fn resize_window_pixel(address: &str, width: i32, height: i32) -> Result<(), Box<dyn Error>> {
     // Syntax: resizewindowpixel exact W H,address:ADDRESS
-    let cmd = format!("resizewindowpixel exact {} {},address:{}", width, height, address);
+    let cmd = format!(
+        "resizewindowpixel exact {} {},address:{}",
+        width, height, address
+    );
     dispatch(&cmd)
 }
 
@@ -177,7 +199,7 @@ mod tests {
         }"#;
 
         let client: HyprClient = serde_json::from_str(json).expect("Failed to deserialize client");
-        
+
         assert_eq!(client.address, "0x1234");
         assert_eq!(client.class, "kitty");
         assert_eq!(client.workspace.id, 1);
@@ -196,8 +218,9 @@ mod tests {
             "lastwindowtitle": "terminal"
         }"#;
 
-        let ws: HyprWorkspace = serde_json::from_str(json).expect("Failed to deserialize workspace");
-        
+        let ws: HyprWorkspace =
+            serde_json::from_str(json).expect("Failed to deserialize workspace");
+
         assert_eq!(ws.id, 1);
         assert_eq!(ws.monitor, "eDP-1");
         assert_eq!(ws.windows, 5);
@@ -217,7 +240,7 @@ mod tests {
         }"#;
 
         let mon: HyprMonitor = serde_json::from_str(json).expect("Failed to deserialize monitor");
-        
+
         assert_eq!(mon.id, 0);
         assert_eq!(mon.width, 1920);
         assert_eq!(mon.active_workspace.id, 1);

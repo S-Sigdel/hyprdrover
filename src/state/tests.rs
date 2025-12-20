@@ -18,15 +18,15 @@ mod tests {
         if Path::new(temp_dir).exists() {
             fs::remove_dir_all(temp_dir).unwrap();
         }
-        
+
         let mut config = Config::default();
         config.session_dir = temp_dir.to_string();
-        
+
         let manager = SessionManager::new(config);
         let sessions = manager.list_sessions().unwrap();
-        
+
         assert_eq!(sessions.len(), 0);
-        
+
         // Cleanup
         if Path::new(temp_dir).exists() {
             fs::remove_dir_all(temp_dir).unwrap();

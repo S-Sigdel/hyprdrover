@@ -1,9 +1,9 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::error::Error;
-use chrono::Local;
 use crate::config::Config;
 use crate::ipc::{self, SessionSnapshot};
+use chrono::Local;
+use std::error::Error;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 pub struct SessionManager {
     config: Config,
@@ -15,15 +15,15 @@ impl SessionManager {
     }
 
     /// Capture the current state, filtering out ignored windows
-    pub fn snapshot(&self) -> Result<PathBuf, Box<dyn Error>> {
+    pub fn snapshot(&self, name: Option<&str>) -> Result<PathBuf, Box<dyn Error>> {
         // 1. Capture raw state from Hyprland
         let mut state = ipc::capture_state()?;
 
         // 2. Filter out ignored classes (like rofi, waybar)
         let original_count = state.clients.len();
-        state.clients.retain(|client| {
-            !self.config.ignored_classes.contains(&client.class)
-        });
+        state
+            .clients
+            .retain(|client| !self.config.ignored_classes.contains(&client.class));
         let filtered_count = original_count - state.clients.len();
 
         if filtered_count > 0 {
@@ -31,17 +31,30 @@ impl SessionManager {
         }
 
         // 3. Save to disk
-        self.save_to_disk(&state)
+        self.save_to_disk(&state, name)
     }
 
-    fn save_to_disk(&self, snapshot: &SessionSnapshot) -> Result<PathBuf, Box<dyn Error>> {
+    fn save_to_disk(
+        &self,
+        snapshot: &SessionSnapshot,
+        name: Option<&str>,
+    ) -> Result<PathBuf, Box<dyn Error>> {
         let session_dir = Path::new(&self.config.session_dir);
         if !session_dir.exists() {
             fs::create_dir_all(session_dir)?;
         }
 
-        let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S");
-        let filename = format!("session_{}.json", timestamp);
+        let filename = if let Some(n) = name {
+            if n.ends_with(".json") {
+                n.to_string()
+            } else {
+                format!("{}.json", n)
+            }
+        } else {
+            let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S");
+            format!("session_{}.json", timestamp)
+        };
+
         let file_path = session_dir.join(&filename);
 
         let json_string = serde_json::to_string_pretty(snapshot)?;
