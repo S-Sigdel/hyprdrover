@@ -43,6 +43,11 @@ hyprdrover is a lightweight session manager for the Hyprland compositor. It allo
     sudo cp target/release/hyprdrover /usr/local/bin/
     ```
 
+### From AUR
+1. You can also use aur helper like yay to install this package from Arch User Repository:
+    ```bash
+    yay -S hyprdrover
+    ```
 ## Usage
 
 hyprdrover is controlled entirely via the command line.
