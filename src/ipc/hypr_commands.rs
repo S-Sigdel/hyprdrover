@@ -125,8 +125,11 @@ pub fn capture_state() -> Result<SessionSnapshot, Box<dyn Error>> {
 
     // Enrich clients with executable path from /proc/<pid>/exe
     for client in &mut clients {
-        if let Ok(path) = std::fs::read_link(format!("/proc/{}/exe", client.pid)) {
-            client.exec_path = Some(path.to_string_lossy().into_owned());
+        // Get full command line with arguments
+        if let Ok(cmdline) = std::fs::read_to_string(format!("/proc/{}/cmdline", client.pid)) {
+            // Arguments are separated by null bytes (\0)
+            let args: Vec<&str> = cmdline.split('\0').filter(|s| !s.is_empty()).collect();
+            client.exec_path = Some(args.join(" "));
         }
     }
 
