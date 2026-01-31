@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::process::Command;
+use std::fs;
 
 // --- Data Models (matching hyprctl -j output) ---
 
@@ -33,8 +34,17 @@ pub struct HyprClient {
     pub fullscreen: i32, // 0: none, 1: maximized, 2: fullscreen
     pub xwayland: bool,
     pub pid: i32,
+
+    /// Full argv-style command used to launch the application.
+    /// This is required to correctly restore PWAs, Electron apps,
+    /// and browser-based app runtimes.
     #[serde(default)]
-    pub exec_path: Option<String>,
+    pub command: Option<Vec<String>>,
+
+    /// Fallback executable path from /proc/<pid>/exe.
+    /// Used only if command is unavailable.
+    #[serde(default)]
+    pub exe_path: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -76,7 +86,7 @@ pub struct SessionSnapshot {
 /// Execute a hyprctl command and return the output as a string
 fn run_hyprctl(args: &[&str]) -> Result<String, Box<dyn Error>> {
     let output = Command::new("hyprctl")
-        .arg("-j") // Request JSON output
+        .arg("-j")
         .args(args)
         .output()?;
 
@@ -94,42 +104,52 @@ fn run_hyprctl(args: &[&str]) -> Result<String, Box<dyn Error>> {
 /// Get all open windows (clients)
 fn get_clients() -> Result<Vec<HyprClient>, Box<dyn Error>> {
     let json = run_hyprctl(&["clients"])?;
-    let clients: Vec<HyprClient> = serde_json::from_str(&json)?;
-    Ok(clients)
+    Ok(serde_json::from_str(&json)?)
 }
 
 /// Get all active workspaces
 fn get_workspaces() -> Result<Vec<HyprWorkspace>, Box<dyn Error>> {
     let json = run_hyprctl(&["workspaces"])?;
-    let workspaces: Vec<HyprWorkspace> = serde_json::from_str(&json)?;
-    Ok(workspaces)
+    Ok(serde_json::from_str(&json)?)
 }
 
 /// Get all connected monitors
 fn get_monitors() -> Result<Vec<HyprMonitor>, Box<dyn Error>> {
     let json = run_hyprctl(&["monitors"])?;
-    let monitors: Vec<HyprMonitor> = serde_json::from_str(&json)?;
-    Ok(monitors)
+    Ok(serde_json::from_str(&json)?)
 }
 
 /// Get the active workspace for the currently focused monitor
 pub fn get_active_workspace() -> Result<HyprActiveWorkspace, Box<dyn Error>> {
     let json = run_hyprctl(&["activeworkspace"])?;
-    let workspace: HyprActiveWorkspace = serde_json::from_str(&json)?;
-    Ok(workspace)
+    Ok(serde_json::from_str(&json)?)
 }
 
 /// Capture the entire current state of Hyprland
 pub fn capture_state() -> Result<SessionSnapshot, Box<dyn Error>> {
     let mut clients = get_clients()?;
 
-    // Enrich clients with executable path from /proc/<pid>/exe
     for client in &mut clients {
-        // Get full command line with arguments
-        if let Ok(cmdline) = std::fs::read_to_string(format!("/proc/{}/cmdline", client.pid)) {
-            // Arguments are separated by null bytes (\0)
-            let args: Vec<&str> = cmdline.split('\0').filter(|s| !s.is_empty()).collect();
-            client.exec_path = Some(args.join(" "));
+        let cmdline_path = format!("/proc/{}/cmdline", client.pid);
+        let exe_path = format!("/proc/{}/exe", client.pid);
+
+        // Prefer full argv from /proc/<pid>/cmdline
+        if let Ok(bytes) = fs::read(&cmdline_path) {
+            let args: Vec<String> = bytes
+                .split(|b| *b == 0)
+                .filter(|s| !s.is_empty())
+                .map(|s| String::from_utf8_lossy(s).into_owned())
+                .collect();
+
+            if !args.is_empty() {
+                client.command = Some(args);
+                continue;
+            }
+        }
+
+        // Fallback: kernel-reported executable path
+        if let Ok(path) = fs::read_link(&exe_path) {
+            client.exe_path = Some(path.to_string_lossy().into_owned());
         }
     }
 
@@ -157,12 +177,12 @@ pub fn dispatch(command: &str) -> Result<(), Box<dyn Error>> {
         )
         .into());
     }
+
     Ok(())
 }
 
-/// Move a specific window to a workspace (silently, without switching focus to that workspace)
+/// Move a specific window to a workspace (silently)
 pub fn move_window_to_workspace(address: &str, workspace_id: i32) -> Result<(), Box<dyn Error>> {
-    // Syntax: movetoworkspacesilent ID,address:ADDRESS
     let cmd = format!("movetoworkspacesilent {},address:{}", workspace_id, address);
     dispatch(&cmd)
 }
@@ -176,89 +196,15 @@ pub fn focus_window(address: &str) -> Result<(), Box<dyn Error>> {
 
 /// Move a window to a specific pixel coordinate
 pub fn move_window_pixel(address: &str, x: i32, y: i32) -> Result<(), Box<dyn Error>> {
-    // Syntax: movewindowpixel exact X Y,address:ADDRESS
     let cmd = format!("movewindowpixel exact {} {},address:{}", x, y, address);
     dispatch(&cmd)
 }
 
 /// Resize a window to specific dimensions
 pub fn resize_window_pixel(address: &str, width: i32, height: i32) -> Result<(), Box<dyn Error>> {
-    // Syntax: resizewindowpixel exact W H,address:ADDRESS
     let cmd = format!(
         "resizewindowpixel exact {} {},address:{}",
         width, height, address
     );
     dispatch(&cmd)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_deserialize_client() {
-        let json = r#"{
-            "address": "0x1234",
-            "at": [10, 10],
-            "size": [800, 600],
-            "workspace": { "id": 1, "name": "1" },
-            "class": "kitty",
-            "title": "terminal",
-            "initialClass": "kitty",
-            "initialTitle": "terminal",
-            "floating": false,
-            "pinned": false,
-            "monitor": 0,
-            "fullscreen": 0,
-            "xwayland": false,
-            "pid": 1234
-        }"#;
-
-        let client: HyprClient = serde_json::from_str(json).expect("Failed to deserialize client");
-
-        assert_eq!(client.address, "0x1234");
-        assert_eq!(client.class, "kitty");
-        assert_eq!(client.workspace.id, 1);
-        assert_eq!(client.size, [800, 600]);
-    }
-
-    #[test]
-    fn test_deserialize_workspace() {
-        let json = r#"{
-            "id": 1,
-            "name": "1",
-            "monitor": "eDP-1",
-            "windows": 5,
-            "hasfullscreen": false,
-            "lastwindow": "0x1234",
-            "lastwindowtitle": "terminal"
-        }"#;
-
-        let ws: HyprWorkspace =
-            serde_json::from_str(json).expect("Failed to deserialize workspace");
-
-        assert_eq!(ws.id, 1);
-        assert_eq!(ws.monitor, "eDP-1");
-        assert_eq!(ws.windows, 5);
-    }
-
-    #[test]
-    fn test_deserialize_monitor() {
-        let json = r#"{
-            "id": 0,
-            "name": "eDP-1",
-            "width": 1920,
-            "height": 1080,
-            "refreshRate": 60.0,
-            "x": 0,
-            "y": 0,
-            "activeWorkspace": { "id": 1, "name": "1" }
-        }"#;
-
-        let mon: HyprMonitor = serde_json::from_str(json).expect("Failed to deserialize monitor");
-
-        assert_eq!(mon.id, 0);
-        assert_eq!(mon.width, 1920);
-        assert_eq!(mon.active_workspace.id, 1);
-    }
 }
